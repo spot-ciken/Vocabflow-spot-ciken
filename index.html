@@ -1767,6 +1767,88 @@ function updateCountdownDisplay(){
   if(el) el.style.color=countdownSecs<=60?'var(--red)':countdownSecs<=180?'var(--accent2)':'var(--accent)';
 }
 
+// ============ BACKGROUND AUDIO KEEP-ALIVE ============
+let keepAliveCtx=null, keepAliveSource=null, keepAliveNode=null;
+
+function startKeepAlive(){
+  try{
+    if(keepAliveCtx) return;
+    keepAliveCtx=new(window.AudioContext||window.webkitAudioContext)();
+    // Buffer silent 1 detik, loop terus — mencegah browser suspend audio
+    const buf=keepAliveCtx.createBuffer(1,keepAliveCtx.sampleRate,keepAliveCtx.sampleRate);
+    keepAliveSource=keepAliveCtx.createBufferSource();
+    keepAliveSource.buffer=buf;
+    keepAliveSource.loop=true;
+    // Gain = 0.001 (nyaris tidak terdengar tapi tidak silent penuh)
+    keepAliveNode=keepAliveCtx.createGain();
+    keepAliveNode.gain.value=0.001;
+    keepAliveSource.connect(keepAliveNode);
+    keepAliveNode.connect(keepAliveCtx.destination);
+    keepAliveSource.start(0);
+  }catch(e){}
+}
+
+function stopKeepAlive(){
+  try{
+    if(keepAliveSource){ keepAliveSource.stop(); keepAliveSource=null; }
+    if(keepAliveCtx){ keepAliveCtx.close(); keepAliveCtx=null; }
+    keepAliveNode=null;
+  }catch(e){}
+}
+
+// ============ MEDIA SESSION API ============
+function setupMediaSession(){
+  if(!('mediaSession' in navigator)) return;
+  navigator.mediaSession.metadata = new MediaMetadata({
+    title: 'VocabFlow',
+    artist: 'SPOT CIKEN',
+    album: 'Hapalan Kosakata',
+  });
+  navigator.mediaSession.setActionHandler('play', ()=>{ if(!isPlaying) startAuto(); });
+  navigator.mediaSession.setActionHandler('pause', ()=>{ if(isPlaying) stopAuto(); });
+  navigator.mediaSession.setActionHandler('nexttrack', ()=>{ stopAuto(); nextWord(); });
+  navigator.mediaSession.setActionHandler('previoustrack', ()=>{ stopAuto(); prevWord(); });
+}
+
+function updateMediaSessionState(playing){
+  if(!('mediaSession' in navigator)) return;
+  navigator.mediaSession.playbackState = playing ? 'playing' : 'paused';
+}
+
+// Resume TTS jika browser sempat pause/freeze saat layar mati
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState === 'visible' && isPlaying){
+    if(window.speechSynthesis && window.speechSynthesis.paused){
+      window.speechSynthesis.resume();
+    }
+    // Resume AudioContext jika suspended
+    if(keepAliveCtx && keepAliveCtx.state === 'suspended'){
+      keepAliveCtx.resume();
+    }
+  }
+});
+
+// Workaround Chrome Android: speechSynthesis kadang berhenti setelah ~15 detik
+// Solusi: pause + resume setiap 10 detik saat playing
+let sttKeepAliveTimer=null;
+function startSttKeepAlive(){
+  stopSttKeepAlive();
+  sttKeepAliveTimer=setInterval(()=>{
+    if(!isPlaying) return;
+    if(window.speechSynthesis && !window.speechSynthesis.speaking && !window.speechSynthesis.pending){
+      // TTS berhenti tiba-tiba — tidak perlu reset, scheduleNext akan handle
+      return;
+    }
+    if(window.speechSynthesis){
+      window.speechSynthesis.pause();
+      window.speechSynthesis.resume();
+    }
+  }, 10000);
+}
+function stopSttKeepAlive(){
+  clearInterval(sttKeepAliveTimer); sttKeepAliveTimer=null;
+}
+
 // ============ TTS ============
 const LANG_TTS={'en-US':true,'en-GB':true,'id-ID':true,'ar-SA':true,'ms-MY':true,'ja-JP':true};
 let voicesList=[], selectedVoice=null, activeLang='en-US';
@@ -1851,10 +1933,15 @@ function startAuto(){
   repeatDone=0; isPlaying=true;
   const btn=$('btnPlay');
   if(btn){btn.textContent='⏸ PAUSE';btn.classList.remove('primary');btn.classList.add('active');}
-  if(!timerInterval) startTimer(); // Lanjut timer dari posisi sebelumnya
+  if(!timerInterval) startTimer();
   if(!wakeEnabled) requestWakeLock();
   const cdSel=$('countdownSelect');
   if(cdSel&&parseFloat(cdSel.value)>0 && !countdownInterval) startCountdown();
+  // Background support
+  startKeepAlive();
+  setupMediaSession();
+  updateMediaSessionState(true);
+  startSttKeepAlive();
   updateRepeatBadge(); speakWord(currentIdx); scheduleNext();
 }
 
@@ -1875,7 +1962,10 @@ function stopAuto(){
   if(window.speechSynthesis) window.speechSynthesis.cancel();
   safeClass('speakingIndicator','remove','active');
   safeText('repeatBadge','');
-  stopTimer(); // Timer berhenti saat pause
+  stopTimer();
+  stopKeepAlive();
+  stopSttKeepAlive();
+  updateMediaSessionState(false);
   const btn=$('btnPlay');
   if(btn){btn.textContent='▶ AUTO-PLAY';btn.classList.add('primary');btn.classList.remove('active');}
 }
