@@ -43,7 +43,7 @@ select.ui-select{font-family:'IBM Plex Mono',monospace;font-size:.68rem;padding:
 .progress-label{display:flex;justify-content:space-between;font-size:.62rem;color:var(--muted);letter-spacing:.1em;margin-bottom:5px;}
 .progress-track{height:3px;background:var(--border);border-radius:2px;overflow:hidden;}
 .progress-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:2px;transition:width .4s ease;}
-.word-card{background:var(--card);border:1px solid var(--border);border-radius:4px;padding:34px 26px;text-align:center;min-height:200px;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:13px;position:relative;overflow:hidden;margin-bottom:16px;}
+.word-card{background:var(--card);border:1px solid var(--border);border-radius:4px;padding:18px 16px;text-align:center;min-height:120px;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:10px;position:relative;overflow:hidden;margin-bottom:16px;}
 .word-card::before{content:'';position:absolute;top:-40px;right:-40px;width:130px;height:130px;background:radial-gradient(circle,rgba(232,197,71,.07) 0%,transparent 70%);pointer-events:none;}
 .word-number{position:absolute;top:11px;left:14px;font-size:.62rem;color:var(--muted);letter-spacing:.1em;}
 .repeat-badge{position:absolute;top:11px;right:14px;font-size:.59rem;color:var(--accent2);letter-spacing:.08em;}
@@ -112,8 +112,8 @@ select.ui-select{font-family:'IBM Plex Mono',monospace;font-size:.68rem;padding:
 
 <header style="margin-bottom:18px">
   <div style="display:flex;flex-direction:column;gap:3px">
-    <div class="logo" style="font-size:1.5rem;line-height:1">Vocab<span>Flow</span></div>
-    <div style="font-family:'Bebas Neue',sans-serif;font-size:1rem;letter-spacing:.2em;color:#c8922a;line-height:1">SPOT CIKEN</div>
+    <div class="logo" style="font-size:1.2rem;line-height:1">Vocab<span>Flow</span></div>
+    <div style="font-family:'Bebas Neue',sans-serif;font-size:1.9rem;letter-spacing:.2em;color:#c8922a;line-height:1">SPOT CIKEN</div>
   </div>
 </header>
 
@@ -135,7 +135,6 @@ select.ui-select{font-family:'IBM Plex Mono',monospace;font-size:.68rem;padding:
 <!-- Controls -->
 <div class="controls">
   <button class="btn primary" id="btnPlay">▶ AUTO-PLAY</button>
-  <button class="btn" id="btnShuffle">⇌ SHUFFLE</button>
   <button class="btn" id="btnReset">↺ RESET</button>
   <button class="btn" id="btnUpload" onclick="$('fileInput').click()">📂 UPLOAD</button>
   <button class="btn" id="btnReverse" onclick="toggleReverse()">⇅ BALIK</button>
@@ -209,7 +208,28 @@ select.ui-select{font-family:'IBM Plex Mono',monospace;font-size:.68rem;padding:
     <option value="3">3s</option>
     <option value="3.5" selected>3.5s</option>
     <option value="5">5s</option>
+    <option value="10">10s</option>
+    <option value="15">15s</option>
+    <option value="20">20s</option>
+    <option value="25">25s</option>
+    <option value="30">30s</option>
   </select>
+</div>
+
+<!-- Ulang dokumen -->
+<div class="opt-row">
+  <span>ULANG DOKUMEN:</span>
+  <select id="docLoopSelect" class="ui-select">
+    <option value="1" selected>1× (tidak ulang)</option>
+    <option value="2">2×</option>
+    <option value="3">3×</option>
+    <option value="5">5×</option>
+    <option value="7">7×</option>
+    <option value="10">10×</option>
+    <option value="15">15×</option>
+    <option value="20">20×</option>
+  </select>
+  <span id="docLoopBadge" style="color:var(--accent2);font-size:.7rem;margin-left:6px"></span>
 </div>
 
 <!-- Hitung mundur -->
@@ -1593,7 +1613,8 @@ function jumpTo(qIdx){
 
 // ============ READ MODE ============
 let queue=[],currentIdx=0,isPlaying=false,autoTimer=null,sessionCount=0,timerInterval=null,elapsed=0;
-let readMode='en', repeatDone=0, loopCount=0;
+let readMode='en', repeatDone=0, loopCount=0, docLoopDone=0;
+function getDocLoop(){ const s=$('docLoopSelect'); return s?parseInt(s.value):1; }
 let skippedIndices=new Set(); // index ke ACTIVE_WORDS yang di-skip
 
 function toggleSkip(wordIdx){
@@ -1634,7 +1655,8 @@ function initRead(){
   stopAuto(); stopTimer(); stopCountdown();
   const active=[...Array(ACTIVE_WORDS.length).keys()].filter(i=>!skippedWords.has(i));
   queue=shuffle(active);
-  currentIdx=0; sessionCount=0; elapsed=0; repeatDone=0; loopCount=0;
+  currentIdx=0; sessionCount=0; elapsed=0; repeatDone=0; loopCount=0; docLoopDone=0;
+  safeText('docLoopBadge','');
   safeShow('doneBanner','none'); safeText('timerDisplay','00:00');
   safeText('repeatBadge',''); safeShow('loopStat','none'); safeText('loopCount','0');
   if(queue.length>0){
@@ -1676,22 +1698,23 @@ function showWord(idx){
 }
 
 function onAllWordsDone(){
-  // Cek apakah hitung mundur masih berjalan
-  if(countdownInterval && countdownSecs>0){
-    // Loop ulang otomatis
+  const maxLoop=getDocLoop();
+  docLoopDone++;
+  if(docLoopDone < maxLoop){
     loopCount++;
     safeShow('loopStat','block');
     safeText('loopCount',loopCount);
-    skippedIndices=new Set(); // reset skip saat data baru diupload
-  queue=shuffle([...Array(ACTIVE_WORDS.length).keys()]);
+    safeText('docLoopBadge','putaran '+docLoopDone+'/'+maxLoop);
+    skippedIndices=new Set();
+    queue=[...Array(ACTIVE_WORDS.length).keys()];
     currentIdx=0; repeatDone=0;
     showWord(0);
     if(isPlaying) speakWord(0);
     if(wordListOpen) renderWordList();
   } else {
-    // Tidak ada countdown / countdown sudah habis → selesai
+    safeText('docLoopBadge','');
     stopAuto(); stopTimer(); releaseWakeLock();
-    safeText('doneMsg','Semua '+ACTIVE_WORDS.length+' kata sudah dibaca'+(loopCount>0?' ('+( loopCount+1)+' putaran)':'')+'.\nIstirahat dulu 🚬');
+    safeText('doneMsg','Semua '+ACTIVE_WORDS.length+' kata sudah dibaca'+(loopCount>0?' ('+loopCount+' putaran)':'')+'.\nIstirahat dulu 🚬');
     safeShow('wordCard','none'); safeShow('navButtons','none'); safeShow('doneBanner','block');
   }
 }
@@ -1872,8 +1895,8 @@ function stopAuto(){
 }
 
 on('btnPlay','click',()=>{ isPlaying?stopAuto():startAuto(); });
-on('btnShuffle','click',()=>{ stopAuto();stopTimer();stopCountdown();elapsed=0;safeText('timerDisplay','00:00'); const active=[...Array(ACTIVE_WORDS.length).keys()].filter(i=>!skippedWords.has(i)); queue=shuffle(active); currentIdx=0;sessionCount=0;repeatDone=0;loopCount=0; safeShow('doneBanner','none');safeShow('loopStat','none'); if(queue.length){safeShow('wordCard','flex');safeShow('navButtons','flex');showWord(0);} renderWordList(); });
-on('btnReset','click',()=>{ stopAuto();stopTimer();stopCountdown();elapsed=0;safeText('timerDisplay','00:00'); currentIdx=0;sessionCount=0;repeatDone=0;loopCount=0; safeShow('doneBanner','none');safeShow('loopStat','none'); if(queue.length){safeShow('wordCard','flex');safeShow('navButtons','flex');showWord(0);} updateStats(); renderWordList(); });
+on('btnShuffle','click',()=>{ stopAuto();stopTimer();stopCountdown();elapsed=0;safeText('timerDisplay','00:00'); const active=[...Array(ACTIVE_WORDS.length).keys()].filter(i=>!skippedWords.has(i)); queue=shuffle(active); currentIdx=0;sessionCount=0;repeatDone=0;loopCount=0;docLoopDone=0; safeText('docLoopBadge',''); safeShow('doneBanner','none');safeShow('loopStat','none'); if(queue.length){safeShow('wordCard','flex');safeShow('navButtons','flex');showWord(0);} renderWordList(); });
+on('btnReset','click',()=>{ stopAuto();stopTimer();stopCountdown();elapsed=0;safeText('timerDisplay','00:00'); currentIdx=0;sessionCount=0;repeatDone=0;loopCount=0;docLoopDone=0; safeText('docLoopBadge',''); safeShow('doneBanner','none');safeShow('loopStat','none'); if(queue.length){safeShow('wordCard','flex');safeShow('navButtons','flex');showWord(0);} updateStats(); renderWordList(); });
 on('btnPrev','click',()=>{ stopAuto(); prevWord(); });
 on('btnNext','click',()=>{ stopAuto(); nextWord(); });
 on('btnSpeak','click',speakCurrent);
